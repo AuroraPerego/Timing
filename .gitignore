@@ -1,4 +1,5 @@
 root_files/
+plots/
 __pycache__/
 
 *.gif
