@@ -46,6 +46,15 @@ def hist(X, weights=None, bins=30, title='title', xlabel='time (ns)', ylabel='Co
     plt.grid()
     plt.show()
     
+def hist_range(X, ran, bins=30, title='title', xlabel='time (ns)', ylabel='Counts'):
+    plt.figure(dpi=100)
+    plt.hist(ak.flatten(X), bins=bins, color='dodgerblue', range=ran)
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.grid()
+    plt.show()
+    
 def scatter(X, Y, s=10, title='title', xlabel='time (ns)', ylabel='z (cm)'):
     plt.figure(dpi=100)
     try:
@@ -76,12 +85,14 @@ def multiplot(nplots, *arg, title='SimTracksters from CaloParticle', xlabel='tim
         ax.set_xlabel(xlabel, fontsize = 16.0)    
         ax.set_ylabel('Counts', fontsize = 16.0)
     
-def nphist(X, weights=None, bins=30, title='title', xlabel='time (ns)', ylabel='Counts'):
+def nphist(X, ran=None, bins=30, title='title', xlabel='time (ns)', ylabel='Counts'):
     plt.figure(dpi=100)
+    if ran==None:
+        ran=(min(X), max(X))
     try:
-        plt.hist(np.array(X).flatten(), bins=bins, color='dodgerblue')
+        plt.hist(np.array(X).flatten(), bins=bins, color='dodgerblue', range=ran)
     except:
-        plt.hist(np.array(X), bins=bins, color='dodgerblue')
+        plt.hist(np.array(X), bins=bins, color='dodgerblue', range=ran)
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)

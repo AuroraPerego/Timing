@@ -4,12 +4,12 @@ import numpy as np
 import awkward as ak
 
 # quick plot with list, np array or flattened awkward array
-def myhist(X, bins=30, title='title', xlabel='time (ns)', ylabel='Counts / bin', range=None):
+def myhist(X, bins=30, title='title', xlabel='time (ns)', ylabel='Counts / bin', color='dodgerblue', range=None, label="data"):
     #plt.figure(dpi=100)
     if range==None:
-        plt.hist(np.array(X), bins=bins, color='dodgerblue')
+        plt.hist(np.array(X), bins=bins, color=color, label=label)
     else:
-        plt.hist(np.array(X), bins=bins, color='dodgerblue', range=range)
+        plt.hist(np.array(X), bins=bins, color=color, range=range, label=label)
     plt.title(title)
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
@@ -23,6 +23,7 @@ def model(x, A, x0, sigma):
 # the counts and bins used to plot the data
 def gauss_fit(data, init_parms, bins=300):
     hist, nbins = np.histogram(data, bins=bins)
+    nbins = 0.5 * (bins[1:] + bins[:-1])
     errors = [np.sqrt(oh+1) for oh in hist]
     init_parameters = init_parms
     cost_func = cost.LeastSquares(nbins[:-1], hist, errors, model)
@@ -35,9 +36,9 @@ def gauss_fit(data, init_parms, bins=300):
 def gauss_fit_and_plot(data, init_parms, label="data", colors=["midnightblue","dodgerblue"], bins=300):
     res, chi2, hists, newbins = gauss_fit(data, init_parms, bins=bins)
     y = model(newbins, *res.values)
-    plt.plot(newbins, y, label=f'gauss fit $\sigma$ = {res.values[2]:.3f} $\pm$ {res.errors[2]:.3f}\n   $x_0$ = {res.values[1]:.3f} $\pm$ {res.errors[1]:.3f} \n   $\chi^2_0$ = {chi2:.3f}', color=colors[0], linewidth=2)
+    plt.plot(newbins, y, label=f'gauss fit\n   $\sigma$ = {res.values[2]:.3f} $\pm$ {res.errors[2]:.3f}\n   $x_0$ = {res.values[1]:.3f} $\pm$ {res.errors[1]:.3f} \n   $\chi^2_0$ = {chi2:.3f}', color=colors[0], linewidth=2)
     plt.hist(np.array(data), bins=bins, color=colors[1], alpha=0.7)
-    plt.legend()
+    plt.legend(fontsize=16)
     plt.grid()
     return res, chi2
 
@@ -595,3 +596,186 @@ def vertex_dt_distribution(ele_prompt, ele_track, ele_dz, ele_dxy, ele_sim_time,
                     ele_reco_dt_B.append(-1)
                     noreco += 1
     return np.array(ele_dt_B), np.array(ele_reco_dt_B), nosim, noreco
+
+# compute isolation to do ROC curves
+def PVisolation(ele_prompt, ele_track, ele_sim_pt, ele_PT, ele_dz, ele_dxy, track_sim_pt, track_pt, 
+              track_dz_ele, track_sim_time, ele_sim_time, 
+              track_time, track_timeErr, ele_time, ele_timeErr, track_mva, ele_mva, track_gen_matched, 
+              ele_from_PV, track_from_PV,
+              NSIGMA=3,ELE_DZ=0.2,SIGNAL=True):
+    ele_pt_noMTD = []
+    ele_pt_MTD = []
+    ele_sim_pt_MTD = []
+    ele_gen_pt_MTD = []
+    
+    MVA_CUT=0.5
+    ERR = (ak.mean(track_timeErr[track_timeErr!=-1])**2+ak.mean(track_timeErr[track_timeErr!=-1])**2)**0.5
+
+    for ev in range(len(ele_prompt)):
+        for ele_idx in range(len(ele_prompt[ev])):
+            if (ele_sim_pt[ev][ele_idx]==-1 or not ele_from_PV[ev][ele_idx]):
+                continue
+            # check on valid trackref
+            if (ele_track[ev][ele_idx]==-1):
+                continue
+
+            pt = ele_sim_pt[ev][ele_idx]
+            pt_reco = ele_PT[ev][ele_idx]
+            # cut on dxy, dz wrt to the PV
+            if (ele_dz[ev][ele_idx]>0.5 or ele_dxy[ev][ele_idx]>0.2):
+                continue
+            # if prompt -> signal, if not -> bkg
+            if SIGNAL:
+                if not ele_prompt[ev][ele_idx]:
+                    continue
+            else:
+                if ele_prompt[ev][ele_idx]:
+                    continue
+
+            sum_sim_mtd = 0
+            sum_noMtd = 0
+            sum_mtd = 0  
+            sum_gen_mtd = 0
+            
+            # loop over tracks
+            for trk_idx in range(len(track_sim_pt[ev][ele_idx])):
+                if (track_sim_pt[ev][ele_idx][trk_idx]==-1 or not track_from_PV[ev][ele_idx][trk_idx]):
+                    continue
+              # cut in dz with ele, tunable
+                if (track_dz_ele[ev][ele_idx][trk_idx] > ELE_DZ):
+                    continue
+                # no MTD
+                sum_noMtd += track_pt[ev][ele_idx][trk_idx]
+                
+                trSimTime  = track_sim_time[ev][ele_idx][trk_idx]
+                eleSimTime = ele_sim_time[ev][ele_idx]
+                trTime  = track_time[ev][ele_idx][trk_idx]
+                trErr   = track_timeErr[ev][ele_idx][trk_idx]
+                eleTime = ele_time[ev][ele_idx]
+                eleErr  = ele_timeErr[ev][ele_idx]
+                # SIM
+                if (trSimTime != -1 and eleSimTime != -1):
+                    # add track and pt for time 
+                    if abs(trSimTime-eleSimTime) < (NSIGMA*ERR):
+                        sum_sim_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                else:
+                    # no time, add anyway 
+                    sum_sim_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                
+                # mva cut
+                if (track_mva[ev][ele_idx][trk_idx] < MVA_CUT):
+                    trErr = -1
+                if (ele_mva[ev][ele_idx] < MVA_CUT):
+                    eleErr = -1
+                # RECO
+                if (trErr > 0 and eleErr > 0):
+                    # add track and pt for time 
+                    if (abs(trTime-eleTime) < (NSIGMA*(trErr**2+eleErr**2)**0.5)):
+                        sum_mtd += track_pt[ev][ele_idx][trk_idx]
+                else:
+                    sum_mtd += track_pt[ev][ele_idx][trk_idx]
+                # GEN   
+                if track_gen_matched[ev][ele_idx][trk_idx]:
+                    sum_gen_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                    
+            # compute relative iso            
+            ele_sim_pt_MTD.append(sum_sim_mtd / pt)         
+            ele_pt_noMTD.append(sum_noMtd / pt_reco)
+            ele_pt_MTD.append(sum_mtd / pt_reco)
+            ele_gen_pt_MTD.append(sum_gen_mtd / pt)
+    return np.array(ele_pt_noMTD), np.array(ele_pt_MTD), np.array(ele_sim_pt_MTD), np.array(ele_gen_pt_MTD)
+
+# computes isolation efficiency using electron time
+def PVisoefficiency(ele_prompt, ele_track, ele_sim_pt, ele_PT, ele_dz, ele_dxy, track_sim_pt, track_pt, 
+                  track_dz_ele, track_sim_time, ele_sim_time, 
+                  track_time, track_timeErr, ele_time, ele_timeErr, track_mva, ele_mva, track_gen_matched, 
+                  ele_from_PV, tracks_from_PV,
+                  NSIGMA=3, ELE_DZ=0.2, ISO_CUT=0.03, SIGNAL=True):
+    ele_pt = []
+    ele_pt_noMTD = []
+    ele_pt_MTD = []
+    ele_sim_pt_MTD = []
+    ele_gen_pt_MTD = []
+    
+    MVA_CUT=0.5
+    ERR = (ak.mean(track_timeErr[track_timeErr!=-1])**2+ak.mean(track_timeErr[track_timeErr!=-1])**2)**0.5
+
+    for ev in range(len(ele_prompt)):
+        for ele_idx in range(len(ele_prompt[ev])):
+            if (ele_sim_pt[ev][ele_idx]==-1):
+                continue
+            # check on valid trackref
+            if (ele_track[ev][ele_idx]==-1 or not ele_from_PV[ev][ele_idx]):
+                continue
+
+            pt = ele_sim_pt[ev][ele_idx]
+            pt_reco = ele_PT[ev][ele_idx]
+            # cut on dxy, dz wrt to the PV
+            if (ele_dz[ev][ele_idx]>0.5 or ele_dxy[ev][ele_idx]>0.2):
+                continue
+            # if prompt -> signal, if not -> bkg
+            if SIGNAL:
+                if not ele_prompt[ev][ele_idx]:
+                    continue
+            else:
+                if ele_prompt[ev][ele_idx]:
+                    continue
+
+            ele_pt.append(pt)
+
+            sum_sim_mtd = 0
+            sum_noMtd = 0
+            sum_mtd = 0  
+            sum_gen_mtd = 0
+            
+            # loop over tracks
+            for trk_idx in range(len(track_sim_pt[ev][ele_idx])):
+                if (track_sim_pt[ev][ele_idx][trk_idx]==-1 or not tracks_from_PV[ev][ele_idx][trk_idx]):
+                    continue
+                # cut in dz with ele, tunable
+                if (track_dz_ele[ev][ele_idx][trk_idx] > ELE_DZ):
+                    continue
+                # no MTD
+                sum_noMtd += track_pt[ev][ele_idx][trk_idx]
+                
+                trSimTime  = track_sim_time[ev][ele_idx][trk_idx]
+                eleSimTime = ele_sim_time[ev][ele_idx]
+                trTime  = track_time[ev][ele_idx][trk_idx]
+                trErr   = track_timeErr[ev][ele_idx][trk_idx]
+                eleTime = ele_time[ev][ele_idx]
+                eleErr  = ele_timeErr[ev][ele_idx]
+                # SIM
+                if (trSimTime != -1 and eleSimTime != -1):
+                    # add track and pt for time 
+                    if abs(trSimTime-eleSimTime) < (NSIGMA*ERR):
+                        sum_sim_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                else:
+                    # no time, add anyway 
+                    sum_sim_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                
+                # mva cut
+                if (track_mva[ev][ele_idx][trk_idx] < MVA_CUT):
+                    trErr = -1
+                if (ele_mva[ev][ele_idx] < MVA_CUT):
+                    eleErr = -1
+                # RECO
+                if (trErr > 0 and eleErr > 0):
+                    # add track and pt for time 
+                    if (abs(trTime-eleTime) < (NSIGMA*(trErr**2+eleErr**2)**0.5)):
+                        sum_mtd += track_pt[ev][ele_idx][trk_idx]
+                else:
+                    sum_mtd += track_pt[ev][ele_idx][trk_idx]
+                # GEN   
+                if track_gen_matched[ev][ele_idx][trk_idx]:
+                    sum_gen_mtd += track_sim_pt[ev][ele_idx][trk_idx]
+                    
+            # compute relative iso and check cut            
+            if (sum_sim_mtd / pt < ISO_CUT):
+                ele_sim_pt_MTD.append(pt)         
+            if (sum_noMtd / pt_reco < ISO_CUT):
+                ele_pt_noMTD.append(pt)
+            if (sum_mtd / pt_reco < ISO_CUT):
+                ele_pt_MTD.append(pt)
+            if (sum_gen_mtd / pt < ISO_CUT):    
+                ele_gen_pt_MTD.append(pt)
+    return ele_pt, ele_pt_noMTD, ele_pt_MTD, ele_sim_pt_MTD, ele_gen_pt_MTD
