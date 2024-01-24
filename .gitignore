@@ -1,5 +1,9 @@
 root_files/
+new_root_files/
 plots/
+linking_env/
+muon_id/
+track_only/
 __pycache__/
 
 *.gif
