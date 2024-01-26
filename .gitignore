@@ -2,8 +2,8 @@ root_files/
 new_root_files/
 plots/
 linking_env/
-muon_id/
-track_only/
+linking_plots/
+txt_files/
 __pycache__/
 
 *.gif
